@@ -42,6 +42,11 @@ class StationRead(StationBase):
     class Config:
         orm_mode = True
 
+class StationUpdate(BaseModel):
+    nombre: Optional[str] = None
+    tipo: Optional[StationType] = None
+    linea: Optional[str] = None
+
 #------------------------------------------------------------------------------------------
 #Part (pieza)
 
@@ -62,6 +67,11 @@ class PartRead(PartBase):
 
     class Config:
         orm_mode = True
+
+class PartUpdate(BaseModel):
+    tipo_pieza: Optional[str] = None
+    lote: Optional[str] = None
+    status: Optional[PartStatus] = None
 
 #------------------------------------------------------------------------------------------
 #TraceEvent (evento de trazabilidad)
