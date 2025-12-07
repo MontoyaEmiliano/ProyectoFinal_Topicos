@@ -10,7 +10,7 @@ from app.core.database import get_db
 from app.models.models import User, UserRole
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 SECRET_KEY: str = getattr(settings, "SECRET_KEY", "JWT_FINAL_PROYECT")
 ALGORITHM: str = settings.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES: int = getattr(

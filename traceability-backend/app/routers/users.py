@@ -14,6 +14,7 @@ class UserUpdate(BaseModel):
     rol: Optional[UserRole] = None
     activo: Optional[bool] = None
 
+#-----------------------------------------------------------------------------------------------------
 @router.get("/", response_model=List[UserRead])
 def list_users(
     rol: Optional[UserRole] = Query(default=None),
@@ -21,7 +22,7 @@ def list_users(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_admin: User = Depends(require_role(UserRole.ADMIN)),
+    current_admin: User = Depends(require_role(UserRole.ADMIN)), # O sea, solo admin puede listar usuarios
 ):
     query = db.query(User)
 
@@ -45,7 +46,7 @@ def list_users(
         for u in users
     ]
 
-
+#-----------------------------------------------------------------------------------------------------
 @router.get("/{user_id}", response_model=UserRead)
 def get_user_by_id(
     user_id: int,
@@ -67,6 +68,8 @@ def get_user_by_id(
         activo=user.activo,
         fecha_registro=user.fecha_registro,
     )
+
+#-----------------------------------------------------------------------------------------------------
 
 @router.patch("/{user_id}", response_model=UserRead)
 def update_user(
@@ -102,6 +105,8 @@ def update_user(
         activo=user.activo,
         fecha_registro=user.fecha_registro,
     )
+
+#-----------------------------------------------------------------------------------------------------
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
