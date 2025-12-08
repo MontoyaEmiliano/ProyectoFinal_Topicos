@@ -36,9 +36,7 @@ def setup_database():
 
     yield
 
-    # Limpiar al final de la sesión de tests
     Base.metadata.drop_all(bind=engine)
-
 
 def override_get_db():
     db = TestingSessionLocal()
@@ -47,18 +45,13 @@ def override_get_db():
     finally:
         db.close()
 
-
 app.dependency_overrides[get_db] = override_get_db
 
 client = TestClient(app)
 
-
-# ----------------------------------------------------------------------------- 
-# TEST: LOGIN CORRECTO
-# -----------------------------------------------------------------------------
 def test_login_success():
     response = client.post(
-        "/api/auth/login",   # <-- ajustado
+        "/api/auth/login",  
         data={"username": "admin@example.com", "password": "admin123"},
     )
 
@@ -68,56 +61,37 @@ def test_login_success():
     assert "access_token" in json
     assert json["user"]["email"] == "admin@example.com"
 
-
-# ----------------------------------------------------------------------------- 
-# TEST: LOGIN CON CREDENCIALES INVÁLIDAS
-# -----------------------------------------------------------------------------
 def test_login_invalid_credentials():
     response = client.post(
-        "/api/auth/login",   # <-- ajustado
+        "/api/auth/login",  
         data={"username": "admin@example.com", "password": "wrongpass"},
     )
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Credenciales inválidas"
 
-
-# ----------------------------------------------------------------------------- 
-# TEST: /auth/me SIN TOKEN (debe fallar)
-# -----------------------------------------------------------------------------
 def test_me_unauthorized():
-    res = client.get("/api/auth/me")   # <-- ajustado
+    res = client.get("/api/auth/me")   
     assert res.status_code == 401
 
-
-# ----------------------------------------------------------------------------- 
-# TEST: /auth/me CON TOKEN
-# -----------------------------------------------------------------------------
 def test_me_authenticated():
-    # Obtener token
     login = client.post(
-        "/api/auth/login",   # <-- ajustado
+        "/api/auth/login",   
         data={"username": "admin@example.com", "password": "admin123"},
     )
     token = login.json()["access_token"]
 
-    # Llamar a /me
     res = client.get(
-        "/api/auth/me",      # <-- ajustado
+        "/api/auth/me",      
         headers={"Authorization": f"Bearer {token}"},
     )
 
     assert res.status_code == 200
     assert res.json()["email"] == "admin@example.com"
 
-
-# ----------------------------------------------------------------------------- 
-# TEST: REGISTRO DE USUARIO NUEVO (ADMIN AUTENTICADO)
-# -----------------------------------------------------------------------------
 def test_register_user_success():
-    # Login para obtener token de admin
     login = client.post(
-        "/api/auth/login",   # <-- ajustado
+        "/api/auth/login",   
         data={"username": "admin@example.com", "password": "admin123"},
     )
     token = login.json()["access_token"]
@@ -130,7 +104,7 @@ def test_register_user_success():
     }
 
     res = client.post(
-        "/api/auth/register",    # <-- ajustado
+        "/api/auth/register",   
         json=new_user,
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -138,26 +112,22 @@ def test_register_user_success():
     assert res.status_code == 200
     assert res.json()["email"] == "supervisor1@example.com"
 
-
-# ----------------------------------------------------------------------------- 
-# TEST: REGISTRO DUPLICADO → 409
-# -----------------------------------------------------------------------------
 def test_register_duplicate_email():
     login = client.post(
-        "/api/auth/login",   # <-- ajustado
+        "/api/auth/login",   
         data={"username": "admin@example.com", "password": "admin123"},
     )
     token = login.json()["access_token"]
 
     new_user = {
         "nombre": "Repetido",
-        "email": "supervisor1@example.com",  # ya existe
+        "email": "supervisor1@example.com",  
         "password": "test123",
         "rol": "SUPERVISOR",
     }
 
     res = client.post(
-        "/api/auth/register",    # <-- ajustado
+        "/api/auth/register",    
         json=new_user,
         headers={"Authorization": f"Bearer {token}"},
     )
