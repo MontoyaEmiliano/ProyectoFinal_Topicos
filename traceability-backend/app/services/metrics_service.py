@@ -13,7 +13,6 @@ def _date_range_to_datetimes(from_date: Optional[date], to_date: Optional[date])
         end_dt = datetime.combine(to_date, time.max)
     return start_dt, end_dt
 
-
 def get_parts_by_status(
     db: Session,
     from_date: Optional[date] = None,
@@ -32,7 +31,7 @@ def get_parts_by_status(
         query = query.filter(Part.tipo_pieza == tipo_pieza)
     agg = (
         db.query(Part.status, func.count(Part.id))
-        .select_from(query.subquery())  # aplicar filtros
+        .select_from(query.subquery())  
         .group_by(Part.status)
         .all()
     )
@@ -88,113 +87,45 @@ def get_throughput(
 
 def get_station_cycle_time(
     db: Session,
-    from_ts: Optional[datetime] = None,
-    to_ts: Optional[datetime] = None,
-    tipo_pieza: Optional[str] = None,
-) -> Dict[str, Any]:
-    query = db.query(TraceEvent).join(Part, TraceEvent.part_id == Part.id)
+    from_ts: Optional[datetime],
+    to_ts: Optional[datetime],
+    tipo_pieza: Optional[str],
+):
+    avg_cycle = func.avg(
+        (func.julianday(TraceEvent.timestamp_salida) - func.julianday(TraceEvent.timestamp_entrada)) * 86400.0
+    ).label("avg_cycle_time_seconds")
 
-    if from_ts:
-        query = query.filter(TraceEvent.timestamp_entrada >= from_ts)
-    if to_ts:
-        query = query.filter(TraceEvent.timestamp_salida <= to_ts)
-    if tipo_pieza:
-        query = query.filter(Part.tipo_pieza == tipo_pieza)
-    agg = (
+    query = (
         db.query(
             Station.id.label("station_id"),
             Station.nombre.label("station_name"),
-            func.avg(
-                func.extract(
-                    "epoch", TraceEvent.timestamp_salida - TraceEvent.timestamp_entrada
-                )
-            ).label("avg_seconds"),
+            avg_cycle,
         )
-        .join(Station, TraceEvent.station_id == Station.id)
-        .select_from(query.subquery())
-        .group_by("station_id", "station_name")
-        .order_by("station_id")
-        .all()
+        .join(TraceEvent, TraceEvent.station_id == Station.id)
+        .join(Part, Part.id == TraceEvent.part_id)
     )
 
-    items = [
+    if from_ts is not None:
+        query = query.filter(TraceEvent.timestamp_entrada >= from_ts)
+
+    if to_ts is not None:
+        query = query.filter(TraceEvent.timestamp_salida <= to_ts)
+
+    if tipo_pieza is not None:
+        query = query.filter(Part.tipo_pieza == tipo_pieza)
+
+    query = query.group_by(Station.id, Station.nombre)
+
+    rows = query.all()
+
+    return [
         {
-            "station_id": station_id,
-            "station_name": station_name,
-            "avg_seconds": float(avg_seconds) if avg_seconds is not None else None,
+            "station_id": r.station_id,
+            "station_name": r.station_name,
+            "avg_cycle_time_seconds": r.avg_cycle_time_seconds or 0.0,
         }
-        for station_id, station_name, avg_seconds in agg
+        for r in rows
     ]
-
-    return {
-        "from_ts": from_ts.isoformat() if from_ts else None,
-        "to_ts": to_ts.isoformat() if to_ts else None,
-        "tipo_pieza": tipo_pieza,
-        "avg_cycle_time_per_station": items,
-    }
-
-def get_scrap_rate(
-    db: Session,
-    from_ts: Optional[datetime] = None,
-    to_ts: Optional[datetime] = None,
-    station_id: Optional[int] = None,
-    tipo_pieza: Optional[str] = None,
-) -> Dict[str, Any]:
-    query = db.query(TraceEvent).join(Part, TraceEvent.part_id == Part.id).join(
-        Station, TraceEvent.station_id == Station.id
-    )
-
-    if from_ts:
-        query = query.filter(TraceEvent.timestamp_entrada >= from_ts)
-    if to_ts:
-        query = query.filter(TraceEvent.timestamp_salida <= to_ts)
-    if station_id:
-        query = query.filter(TraceEvent.station_id == station_id)
-    if tipo_pieza:
-        query = query.filter(Part.tipo_pieza == tipo_pieza)
-
-    agg = (
-        db.query(
-            Part.tipo_pieza.label("tipo_pieza"),
-            Station.id.label("station_id"),
-            Station.nombre.label("station_name"),
-            func.count(TraceEvent.id).label("total"),
-            func.sum(
-                case(
-                    (TraceEvent.resultado == TraceResult.SCRAP, 1),
-                    else_=0,
-                )
-            ).label("scrap"),
-        )
-        .select_from(query.subquery())
-        .group_by("tipo_pieza", "station_id", "station_name")
-        .order_by("tipo_pieza", "station_id")
-        .all()
-    )
-
-    items = []
-    for tipo, st_id, st_name, total, scrap in agg:
-        total = int(total or 0)
-        scrap = int(scrap or 0)
-        rate = scrap / total if total > 0 else 0.0
-        items.append(
-            {
-                "tipo_pieza": tipo,
-                "station_id": st_id,
-                "station_name": st_name,
-                "total": total,
-                "scrap": scrap,
-                "scrap_rate": rate,
-            }
-        )
-
-    return {
-        "from_ts": from_ts.isoformat() if from_ts else None,
-        "to_ts": to_ts.isoformat() if to_ts else None,
-        "filter_station_id": station_id,
-        "filter_tipo_pieza": tipo_pieza,
-        "scrap_rate": items,
-    }
 
 def get_overview(db: Session) -> Dict[str, Any]:
     today = datetime.utcnow().date()
@@ -244,41 +175,97 @@ def get_overview(db: Session) -> Dict[str, Any]:
         "scrap_today": scrap_today,
     }
 
-def get_station_load(
+def get_scrap_rate(
     db: Session,
-    from_ts: Optional[datetime] = None,
-    to_ts: Optional[datetime] = None,
-) -> Dict[str, Any]:
-    query = db.query(TraceEvent).join(Station, TraceEvent.station_id == Station.id)
+    from_ts: Optional[datetime],
+    to_ts: Optional[datetime],
+    station_id: Optional[int],
+    tipo_pieza: Optional[str],
+):
+    total = func.count(TraceEvent.id).label("total")
+    scrap = func.sum(
+        case(
+            (TraceEvent.resultado == TraceResult.SCRAP, 1),
+            else_=0,
+        )
+    ).label("scrap_count")
 
-    if from_ts:
+    query = (
+        db.query(
+            Part.tipo_pieza.label("tipo_pieza"),
+            Station.id.label("station_id"),
+            Station.nombre.label("station_name"),
+            total,
+            scrap,
+        )
+        .join(TraceEvent, TraceEvent.part_id == Part.id)
+        .join(Station, TraceEvent.station_id == Station.id)
+    )
+
+    if from_ts is not None:
         query = query.filter(TraceEvent.timestamp_entrada >= from_ts)
-    if to_ts:
+
+    if to_ts is not None:
         query = query.filter(TraceEvent.timestamp_salida <= to_ts)
 
-    agg = (
+    if station_id is not None:
+        query = query.filter(Station.id == station_id)
+
+    if tipo_pieza is not None:
+        query = query.filter(Part.tipo_pieza == tipo_pieza)
+
+    query = query.group_by(Part.tipo_pieza, Station.id, Station.nombre)
+
+    rows = query.all()
+
+    resultado = []
+    for r in rows:
+        total_val = r.total or 0
+        scrap_val = r.scrap_count or 0
+        rate = float(scrap_val) / total_val if total_val else 0.0
+
+        resultado.append(
+            {
+                "tipo_pieza": r.tipo_pieza,
+                "station_id": r.station_id,
+                "station_name": r.station_name,
+                "total": total_val,
+                "scrap": scrap_val,
+                "scrap_rate": rate,
+            }
+        )
+
+    return resultado
+
+def get_station_load(
+    db: Session,
+    from_ts: Optional[datetime],
+    to_ts: Optional[datetime],
+):
+    query = (
         db.query(
             Station.id.label("station_id"),
             Station.nombre.label("station_name"),
             func.count(TraceEvent.id).label("events_count"),
         )
-        .select_from(query.subquery())
-        .group_by("station_id", "station_name")
-        .order_by("station_id")
-        .all()
+        .join(TraceEvent, TraceEvent.station_id == Station.id)
     )
 
-    items = [
-        {
-            "station_id": station_id,
-            "station_name": station_name,
-            "events_count": int(events_count or 0),
-        }
-        for station_id, station_name, events_count in agg
-    ]
+    if from_ts is not None:
+        query = query.filter(TraceEvent.timestamp_entrada >= from_ts)
 
-    return {
-        "from_ts": from_ts.isoformat() if from_ts else None,
-        "to_ts": to_ts.isoformat() if to_ts else None,
-        "station_load": items,
-    }
+    if to_ts is not None:
+        query = query.filter(TraceEvent.timestamp_salida <= to_ts)
+
+    query = query.group_by(Station.id, Station.nombre)
+
+    rows = query.all()
+
+    return [
+        {
+            "station_id": r.station_id,
+            "station_name": r.station_name,
+            "events_count": r.events_count or 0,
+        }
+        for r in rows
+    ]
